@@ -54,14 +54,6 @@ cd scripts
 WORK_ROOT=contextbench_work_dir_claude python prepare_repos_with_leann.py
 ```
 
-Useful overrides:
-
-```bash
-SELECTED_IDS=id1,id2 WORK_ROOT=contextbench_work_dir_claude python prepare_repos_with_leann.py
-BENCH_FILTER=Pro WORK_ROOT=contextbench_work_dir_claude python prepare_repos_with_leann.py
-LEANN_AST_CHUNK_SIZE=600 LEANN_AST_CHUNK_OVERLAP=96 python prepare_repos_with_leann.py
-```
-
 ## 4. Run Selected Tasks
 
 ```bash
@@ -92,20 +84,14 @@ SELECTED_IDS=id1,id2 python batch_run_selected.py
 Context retrieval metrics:
 
 ```bash
-cd scripts
-python evaluate_run.py \
-  --predictions all_predictions_claude.jsonl \
-  --metrics task_metrics.jsonl \
-  --output-json eval_report.json
-```
+cd ".../contextbench_official_repo"
 
-Patch-based proxy accuracy:
-
-```bash
-python evaluate_contextbench_accuracy.py \
-  --predictions all_predictions_claude.jsonl \
-  --metrics task_metrics.jsonl \
-  --output-json contextbench_accuracy_report.json
+PYTHONPATH=. python -m contextbench.evaluate \
+  --gold data/full.parquet \
+  --pred "../scripts/all_predictions_claude.jsonl" \
+  --cache "../scripts/contextbench_eval_repos" \
+  --out "../scripts/contextbench_official_eval_claude.jsonl" \
+  2>&1 | tee "../scripts/contextbench_official_eval_claude.log"
 ```
 
 ## 6. Clean Generated Files
