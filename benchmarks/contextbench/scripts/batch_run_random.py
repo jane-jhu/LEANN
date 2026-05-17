@@ -5,9 +5,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from auto_run import prefetch_task_repositories
 from datasets import load_dataset
-
-from auto_run import prefetch_task_repositories, run_single_task
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_FILE = os.environ.get("OUTPUT_FILE", "all_predictions_claude.jsonl")
@@ -54,7 +53,7 @@ def main():
     existing_ids: set = set()
     output_path = Path(OUTPUT_FILE)
     if output_path.exists():
-        with open(output_path, "r") as f:
+        with open(output_path) as f:
             for line in f:
                 try:
                     data = json.loads(line)
@@ -67,7 +66,8 @@ def main():
     ds = load_dataset(DATASET_NAME, split=DATASET_SPLIT)
 
     pending_tasks = [
-        t for t in ds
+        t
+        for t in ds
         if t["instance_id"] not in existing_ids
         and (not BENCH_FILTER or t.get("source", "") == BENCH_FILTER)
         and (
@@ -87,41 +87,39 @@ def main():
         prefetch_task_repositories(selected_tasks, Path(WORK_ROOT))
     else:
         print("⏭️ PREFETCH_REPOS=0; skipping prefetch step.")
-    success_count = 0
-    failure_count = 0
 
     for i, task in enumerate(selected_tasks):
         instance_id = task["instance_id"]
         repo_url = task["repo_url"]
 
-        print(f"\n{'-'*60}")
-        print(f"📦 [{i+1}/{len(selected_tasks)}] Running: {instance_id}")
+        print(f"\n{'-' * 60}")
+        print(f"📦 [{i + 1}/{len(selected_tasks)}] Running: {instance_id}")
         print(f"   repo: {repo_url}  source: {task.get('source', '?')}")
 
         # try:
-            # patch, elapsed, traj_data, usage = run_single_task(
-            #     instance_id=instance_id,
-            #     repo_url=repo_url,
-            #     work_root=WORK_ROOT,
-            #     mitm_script_path=str(MITM_SCRIPT),
-            #     trace_dir=TRACE_DIR,
-            #     model=MODEL,
-            #     task=task,
-            # )
+        # patch, elapsed, traj_data, usage = run_single_task(
+        #     instance_id=instance_id,
+        #     repo_url=repo_url,
+        #     work_root=WORK_ROOT,
+        #     mitm_script_path=str(MITM_SCRIPT),
+        #     trace_dir=TRACE_DIR,
+        #     model=MODEL,
+        #     task=task,
+        # )
 
-            # result_entry = {
-            #     "instance_id": instance_id,
-            #     "model_patch": patch if patch else "",
-            #     "model_name_or_path": "claude-code-cli",
-            #     "elapsed_seconds": round(elapsed, 1),
-            #     "traj_data": traj_data,
-            #     "token_usage": usage,
-            # }
+        # result_entry = {
+        #     "instance_id": instance_id,
+        #     "model_patch": patch if patch else "",
+        #     "model_name_or_path": "claude-code-cli",
+        #     "elapsed_seconds": round(elapsed, 1),
+        #     "traj_data": traj_data,
+        #     "token_usage": usage,
+        # }
 
-            # with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
-            #     f.write(json.dumps(result_entry) + "\n")
-            # print(f"✅ Result saved for {instance_id}")
-            # success_count += 1
+        # with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+        #     f.write(json.dumps(result_entry) + "\n")
+        # print(f"✅ Result saved for {instance_id}")
+        # success_count += 1
 
         # except Exception as e:
         #     print(f"❌ Error processing {instance_id}: {e}")

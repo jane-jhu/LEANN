@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from datasets import load_dataset
 from git import Repo
@@ -36,7 +36,9 @@ LEANN_SOURCE_EXTENSIONS = os.environ.get(
 # LEANN index build parameters — override via env vars for sweeping configs.
 # ast-chunk-size is in non-whitespace CHARACTERS (not tokens). bge-base-en-v1.5
 # has a 512-token limit; at ~1.2 tokens/char: 300 chars + 64 overlap ≈ 436 tokens.
-LEANN_EMBEDDING_MODEL = os.environ.get("LEANN_EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code")
+LEANN_EMBEDDING_MODEL = os.environ.get(
+    "LEANN_EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code"
+)
 LEANN_AST_CHUNK_SIZE = os.environ.get("LEANN_AST_CHUNK_SIZE", "600")
 LEANN_AST_CHUNK_OVERLAP = os.environ.get("LEANN_AST_CHUNK_OVERLAP", "96")
 # Set to "0" to disable vendor/generated exclusion (e.g. for ablation experiments).
@@ -50,7 +52,7 @@ FAILED_INSTANCES_LOG = os.environ.get(
 
 # Fill in ContextBench instance_ids. Leave empty to prepare all tasks
 # (optionally filtered by BENCH_FILTER).
-SELECTED_IDS: List[str] = [
+SELECTED_IDS: list[str] = [
     # "SWE-Bench-Pro__python__maintenance__bugfix__19a1fba2",
     # "SWE-Bench-Pro__python__maintenance__bugfix__2464eadb",
     # "SWE-Bench-Pro__python__maintenance__bugfix__38dc8f4e",
@@ -156,11 +158,11 @@ _TEST_FILE_PATTERNS = (
 )
 
 
-def _run_command(cmd: List[str], cwd: Path) -> subprocess.CompletedProcess:
+def _run_command(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
 
 
-def _read_json_file(path: Path) -> Optional[Dict]:
+def _read_json_file(path: Path) -> Optional[dict]:
     if not path.exists():
         return None
     try:
@@ -188,7 +190,7 @@ def _print_subprocess_output(label: str, text: str, max_lines: int = 20) -> None
         print(f"      ... ({len(lines) - max_lines} more lines)")
 
 
-def _write_failure_report(failures: List[Dict]) -> Optional[Path]:
+def _write_failure_report(failures: list[dict]) -> Optional[Path]:
     if not failures:
         return None
     report_path = Path(FAILED_INSTANCES_LOG)
@@ -199,16 +201,16 @@ def _write_failure_report(failures: List[Dict]) -> Optional[Path]:
     return report_path
 
 
-def _load_tasks() -> List[Dict]:
+def _load_tasks() -> list[dict]:
     print(f"📚 Loading dataset: {DATASET_NAME} ({DATASET_SPLIT})...")
     ds = load_dataset(DATASET_NAME, split=DATASET_SPLIT)
-    tasks: List[Dict] = list(ds)
+    tasks: list[dict] = list(ds)
     if BENCH_FILTER:
         tasks = [t for t in tasks if t.get("source", "") == BENCH_FILTER]
 
     if SELECTED_IDS:
         task_lookup = {t["instance_id"]: t for t in tasks}
-        selected: List[Dict] = []
+        selected: list[dict] = []
         for iid in SELECTED_IDS:
             task = task_lookup.get(iid)
             if not task:
@@ -226,7 +228,7 @@ def _is_pytest_style_test_py(normalized_path: str) -> bool:
     return name.startswith("test_") and name.lower().endswith(".py")
 
 
-def build_leann_index(instance_id: str, repo_dir: Path) -> Tuple[bool, Optional[str]]:
+def build_leann_index(instance_id: str, repo_dir: Path) -> tuple[bool, Optional[str]]:
     print(f"   🔍 Building LEANN index for {instance_id}...")
 
     result = _run_command(["git", "ls-files"], cwd=repo_dir)
@@ -248,14 +250,17 @@ def build_leann_index(instance_id: str, repo_dir: Path) -> Tuple[bool, Optional[
         before = len(source_files)
         normalized = [f.replace("\\", "/") for f in source_files]
         source_files = [
-            f for f, n in zip(source_files, normalized)
+            f
+            for f, n in zip(source_files, normalized)
             if not any(pat in n for pat in _VENDOR_DIR_PATTERNS)
             and not any(n.endswith(pat) for pat in _GENERATED_FILE_PATTERNS)
             and not any(sub in n for sub in _GENERATED_FILE_SUBSTRINGS)
         ]
         excluded = before - len(source_files)
         if excluded:
-            print(f"   🚫 Excluded {excluded} vendor/generated files ({before} → {len(source_files)})")
+            print(
+                f"   🚫 Excluded {excluded} vendor/generated files ({before} → {len(source_files)})"
+            )
 
     # Exclude test files — they are rarely bugfix targets and consistently rank
     # high in semantic search due to mirroring production code patterns.
@@ -263,7 +268,8 @@ def build_leann_index(instance_id: str, repo_dir: Path) -> Tuple[bool, Optional[
         before = len(source_files)
         normalized = [f.replace("\\", "/") for f in source_files]
         source_files = [
-            f for f, n in zip(source_files, normalized)
+            f
+            for f, n in zip(source_files, normalized)
             if not any(pat in n for pat in _TEST_PATH_PATTERNS)
             and not _is_pytest_style_test_py(n)
             and not any(n.endswith(pat) for pat in _TEST_FILE_PATTERNS)
@@ -279,21 +285,33 @@ def build_leann_index(instance_id: str, repo_dir: Path) -> Tuple[bool, Optional[
 
     # Derive --file-types from the actual extensions present after filtering,
     # so all indexed file types benefit from AST-aware chunking.
-    indexed_exts = sorted({Path(f).suffix.lstrip(".").lower() for f in source_files if Path(f).suffix})
+    indexed_exts = sorted(
+        {Path(f).suffix.lstrip(".").lower() for f in source_files if Path(f).suffix}
+    )
     file_types_arg = ",".join(indexed_exts)
 
     print(f"   📊 Found {len(source_files)} source files (types: {file_types_arg})")
     leann_cmd = [
-        LEANN_BIN, "build", instance_id, "--docs", *source_files,
-        "--embedding-mode", "sentence-transformers",
-        "--embedding-model", LEANN_EMBEDDING_MODEL,
-        "--backend", "hnsw",
-        "--file-types", file_types_arg,
+        LEANN_BIN,
+        "build",
+        instance_id,
+        "--docs",
+        *source_files,
+        "--embedding-mode",
+        "sentence-transformers",
+        "--embedding-model",
+        LEANN_EMBEDDING_MODEL,
+        "--backend",
+        "hnsw",
+        "--file-types",
+        file_types_arg,
         "--force",
-        "--ast-chunk-size", LEANN_AST_CHUNK_SIZE,
-        "--ast-chunk-overlap", LEANN_AST_CHUNK_OVERLAP,
+        "--ast-chunk-size",
+        LEANN_AST_CHUNK_SIZE,
+        "--ast-chunk-overlap",
+        LEANN_AST_CHUNK_OVERLAP,
         "--use-ast-chunking",
-        "--no-recompute"
+        "--no-recompute",
     ]
     debug_cmd = [
         LEANN_BIN,
@@ -312,7 +330,11 @@ def build_leann_index(instance_id: str, repo_dir: Path) -> Tuple[bool, Optional[
             capture_output=True,
             text=True,
             timeout=1800,
-            env={**os.environ, "LEANN_EMBEDDING_DEVICE": os.environ.get("LEANN_EMBEDDING_DEVICE", "mps"), "LEANN_BATCH_SIZE": os.environ.get("LEANN_BATCH_SIZE", "32")},
+            env={
+                **os.environ,
+                "LEANN_EMBEDDING_DEVICE": os.environ.get("LEANN_EMBEDDING_DEVICE", "mps"),
+                "LEANN_BATCH_SIZE": os.environ.get("LEANN_BATCH_SIZE", "32"),
+            },
         )
     except subprocess.TimeoutExpired:
         error = "LEANN build timed out"
@@ -344,7 +366,7 @@ def build_leann_index(instance_id: str, repo_dir: Path) -> Tuple[bool, Optional[
     return True, None
 
 
-def prepare_single_task(task: Dict) -> Tuple[bool, Optional[str]]:
+def prepare_single_task(task: dict) -> tuple[bool, Optional[str]]:
     instance_id = task["instance_id"]
     repo_url = task["repo_url"]
     base_commit = task["base_commit"]
@@ -403,7 +425,7 @@ def main():
 
     success_count = 0
     fail_count = 0
-    failures: List[Dict] = []
+    failures: list[dict] = []
     for i, task in enumerate(tasks, start=1):
         print(f"\n[{i}/{len(tasks)}]")
         succeeded, error = prepare_single_task(task)

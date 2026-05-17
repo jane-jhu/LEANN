@@ -4,9 +4,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from datasets import load_dataset
-
 from auto_run import prefetch_task_repositories, run_single_task
+from datasets import load_dataset
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_FILE = os.environ.get("OUTPUT_FILE", "all_predictions_claude.jsonl")
@@ -92,7 +91,9 @@ def cleanup_residuals():
 
 def main():
     if not SELECTED_IDS:
-        print("⚠️ Warning: SELECTED_IDS list is empty. Add instance IDs to the script or set SELECTED_IDS env var.")
+        print(
+            "⚠️ Warning: SELECTED_IDS list is empty. Add instance IDs to the script or set SELECTED_IDS env var."
+        )
         return
 
     Path(WORK_ROOT).mkdir(parents=True, exist_ok=True)
@@ -112,7 +113,7 @@ def main():
     existing_ids: set = set()
     output_path = Path(OUTPUT_FILE)
     if output_path.exists():
-        with open(output_path, "r") as f:
+        with open(output_path) as f:
             for line in f:
                 try:
                     data = json.loads(line)
@@ -157,8 +158,8 @@ def main():
         instance_id = task["instance_id"]
         repo_url = task["repo_url"]
 
-        print(f"\n{'-'*60}")
-        print(f"📦 [{i+1}/{len(selected_tasks)}] Running: {instance_id}")
+        print(f"\n{'-' * 60}")
+        print(f"📦 [{i + 1}/{len(selected_tasks)}] Running: {instance_id}")
         print(f"   repo: {repo_url}  source: {task.get('source', '?')}")
 
         try:

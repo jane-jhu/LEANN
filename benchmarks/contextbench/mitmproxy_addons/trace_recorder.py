@@ -1,15 +1,19 @@
 import json
-import time
 import os
+import time
 from pathlib import Path
+
 from mitmproxy import http
 
 TASK_ID = os.environ.get("TASK_INSTANCE", "unknown_task")
-TRACE_DIR = Path(os.environ.get("TRACE_DIR", Path(__file__).resolve().parents[1] / "traces" / "raw"))
+TRACE_DIR = Path(
+    os.environ.get("TRACE_DIR", Path(__file__).resolve().parents[1] / "traces" / "raw")
+)
 TRACE_DIR.mkdir(parents=True, exist_ok=True)
 HOST_FILTER = os.environ.get("TRACE_HOST_FILTER", "").strip().lower()
 
 OUTPUT_FILE = TRACE_DIR / f"{TASK_ID}_trace.jsonl"
+
 
 def _should_record(flow: http.HTTPFlow) -> bool:
     host = (flow.request.host or "").lower()
@@ -23,10 +27,12 @@ def _should_record(flow: http.HTTPFlow) -> bool:
 
     return True
 
+
 def request(flow: http.HTTPFlow):
     if "statsig" in flow.request.pretty_host:
         flow.response = http.Response.make(204)
         return
+
 
 def response(flow: http.HTTPFlow):
     should = _should_record(flow)
@@ -52,7 +58,7 @@ def response(flow: http.HTTPFlow):
                 "status_code": flow.response.status_code if flow.response else None,
                 "headers": dict(flow.response.headers) if flow.response else {},
                 "text": flow.response.get_text(strict=False) if flow.response else "",
-            }
+            },
         }
 
         with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
@@ -61,5 +67,6 @@ def response(flow: http.HTTPFlow):
     except Exception as e:
         print(f"DEBUG: Error recording trace: {e}")
         import traceback
+
         traceback.print_exc()
         pass

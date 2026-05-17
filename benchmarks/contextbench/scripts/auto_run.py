@@ -5,11 +5,9 @@ import shutil
 import signal
 import socket
 import subprocess
-import sys
-import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import pexpect
 from datasets import load_dataset
@@ -17,6 +15,7 @@ from git import Repo
 
 DATASET_NAME = os.environ.get("DATASET_NAME", "Contextbench/ContextBench")
 DATASET_SPLIT = os.environ.get("DATASET_SPLIT", "train")
+
 
 # Parse integer environment variables with validation and defaults.
 def _get_int_env(name: str, default: int, min_value: int = 1) -> int:
@@ -32,6 +31,7 @@ def _get_int_env(name: str, default: int, min_value: int = 1) -> int:
         print(f"⚠️ {name} must be >= {min_value}; falling back to {default}")
         return default
     return value
+
 
 LEANN_TOP_K = _get_int_env("LEANN_TOP_K", 5, min_value=1)
 USAGE_LOG_FILE = os.environ.get("USAGE_LOG_FILE", "task_session_usage.log").strip()
@@ -50,7 +50,9 @@ def get_git_diff(repo_dir: Path) -> str:
 
 
 # Prepare repository state for one ContextBench task instance.
-def setup_task_environment(instance_id: str, repo_url: str, work_root: Path, task: Optional[Dict] = None) -> Path:
+def setup_task_environment(
+    instance_id: str, repo_url: str, work_root: Path, task: Optional[dict] = None
+) -> Path:
     print(f"🚀 [1/4] Preparing environment: {instance_id}")
     if not task:
         ds = load_dataset(DATASET_NAME, split=DATASET_SPLIT)
@@ -72,13 +74,13 @@ def setup_task_environment(instance_id: str, repo_url: str, work_root: Path, tas
 
 
 # Pre-download all task repositories before model execution starts.
-def prefetch_task_repositories(tasks: List[Dict], work_root: Path) -> None:
+def prefetch_task_repositories(tasks: list[dict], work_root: Path) -> None:
     if not tasks:
         print("📦 [Prefetch] No tasks to download.")
         return
 
     print(f"📦 [Prefetch] Downloading repositories for {len(tasks)} tasks...")
-    failures: List[str] = []
+    failures: list[str] = []
 
     for i, task in enumerate(tasks, start=1):
         instance_id = task.get("instance_id", "").strip()
@@ -106,10 +108,7 @@ def prefetch_task_repositories(tasks: List[Dict], work_root: Path) -> None:
         last_error: Optional[Exception] = None
         for attempt in range(1, 3 + 1):
             try:
-                print(
-                    f"   [{i}/{len(tasks)}] ⬇️  Cloning: {instance_id} "
-                    f"(attempt {attempt}/3)"
-                )
+                print(f"   [{i}/{len(tasks)}] ⬇️  Cloning: {instance_id} (attempt {attempt}/3)")
                 Repo.clone_from(repo_url, target_dir)
                 print(f"   [{i}/{len(tasks)}] ✅ Cloned: {instance_id}")
                 cloned = True
@@ -187,7 +186,7 @@ def _resolve_mitmdump_bin() -> str:
 
 # Start mitmproxy traffic recorder for the current task.
 def start_mitmproxy(instance_id: str, mitm_script_path: str) -> subprocess.Popen:
-    print(f"🕵️ [2/4] Starting Traffic Recorder...")
+    print("🕵️ [2/4] Starting Traffic Recorder...")
     env = os.environ.copy()
     env["TASK_INSTANCE"] = instance_id
     mitmdump_bin = _resolve_mitmdump_bin()
@@ -223,7 +222,11 @@ def _has_mcp_server_config(node, server_name: str, parent_key: str = "") -> bool
             key_l = key.lower()
             if key_l in {"mcpservers", "mcp_servers"} and _server_in_container(value, server_name):
                 return True
-            if parent_key.lower() == "mcp" and key_l == "servers" and _server_in_container(value, server_name):
+            if (
+                parent_key.lower() == "mcp"
+                and key_l == "servers"
+                and _server_in_container(value, server_name)
+            ):
                 return True
             if _has_mcp_server_config(value, server_name, key):
                 return True
@@ -266,8 +269,8 @@ def resolve_claude_mcp_config(server_name: str) -> Optional[Path]:
     return None
 
 
-def _normalize_mcp_servers(servers_obj) -> Dict[str, Dict]:
-    servers: Dict[str, Dict] = {}
+def _normalize_mcp_servers(servers_obj) -> dict[str, dict]:
+    servers: dict[str, dict] = {}
     if isinstance(servers_obj, dict):
         for name, config in servers_obj.items():
             if isinstance(name, str) and isinstance(config, dict):
@@ -285,8 +288,8 @@ def _normalize_mcp_servers(servers_obj) -> Dict[str, Dict]:
     return servers
 
 
-def _extract_mcp_servers(node, parent_key: str = "") -> Dict[str, Dict]:
-    servers: Dict[str, Dict] = {}
+def _extract_mcp_servers(node, parent_key: str = "") -> dict[str, dict]:
+    servers: dict[str, dict] = {}
     if isinstance(node, dict):
         for key, value in node.items():
             key_l = key.lower()
@@ -317,7 +320,7 @@ def build_strict_mcp_config_without_server(server_name: str) -> Optional[str]:
 
 
 # Decide whether LEANN/MCP integration is available for this task repo.
-def resolve_leann_integration(target_dir: Path) -> Dict[str, str]:
+def resolve_leann_integration(target_dir: Path) -> dict[str, str]:
     leann_enabled = os.environ.get("LEANN_ENABLED", "1") != "0"
     use_mcp = os.environ.get("LEANN_USE_MCP", "1") != "0"
     mcp_server_name = os.environ.get("LEANN_MCP_SERVER", "leann-server")
@@ -344,25 +347,24 @@ def resolve_leann_integration(target_dir: Path) -> Dict[str, str]:
 
 
 # Build the initial Claude prompt from PROBLEM.md plus optional LEANN hints.
-def build_initial_prompt(target_dir: Path, leann_info: Dict[str, str], instance_id: str = "") -> str:
+def build_initial_prompt(
+    target_dir: Path, leann_info: dict[str, str], instance_id: str = ""
+) -> str:
     problem_file = target_dir / "PROBLEM.md"
     try:
         problem_text = problem_file.read_text(encoding="utf-8").strip()
         if leann_info.get("mode") == "mcp":
-            server_name = leann_info.get("mcp_server_name", "leann-server")
+            leann_info.get("mcp_server_name", "leann-server")
             mcp_hint = (
                 f"Your LEANN index name is: {instance_id}\n"
                 "Use LEANN MCP as a cost-aware semantic entry-point router. "
                 "Before broad exploration, call leann_search once. "
                 "Use top_k=5 by default, top_k=10 only for clearly multi-hop tasks spanning multiple subsystems; never use top_k>10. "
                 "Use show_metadata=false.\n"
-
-
                 "After LEANN, open the top 1-3 likely implementation/source files first, preferring source files over tests/docs/examples/generated files. "
                 "Do not open many retrieved files just because they were returned. "
                 "After identifying the likely fix location, use targeted Grep to find existing callers, API/server entry points, tests, and config files that may need to be updated. "
                 "This targeted Grep is preferred over additional LEANN once concrete symbols, functions, file paths, config keys, or error strings are known.\n"
-
                 "Run at most one additional leann_search only if no plausible implementation entry point is found or a required subsystem is clearly missing. "
                 "The second query must be more specific, using concrete identifiers/literals found so far. "
                 "Use show_metadata=false unless metadata is necessary to disambiguate files. "
@@ -378,10 +380,10 @@ def build_initial_prompt(target_dir: Path, leann_info: Dict[str, str], instance_
 def run_claude_autonomous(
     target_dir: Path,
     model: str,
-    leann_info: Optional[Dict[str, str]] = None,
+    leann_info: Optional[dict[str, str]] = None,
     instance_id: str = "",
 ):
-    print(f"🤖 [3/4] Launching Claude Code")
+    print("🤖 [3/4] Launching Claude Code")
     if (target_dir / ".claude").exists():
         shutil.rmtree(target_dir / ".claude")
 
@@ -399,11 +401,13 @@ def run_claude_autonomous(
     initial_prompt = build_initial_prompt(target_dir, leann_info, instance_id=instance_id)
 
     env = os.environ.copy()
-    env.update({
-        "HTTP_PROXY": "http://127.0.0.1:8080",
-        "HTTPS_PROXY": "http://127.0.0.1:8080",
-        "NODE_TLS_REJECT_UNAUTHORIZED": "0",
-    })
+    env.update(
+        {
+            "HTTP_PROXY": "http://127.0.0.1:8080",
+            "HTTPS_PROXY": "http://127.0.0.1:8080",
+            "NODE_TLS_REJECT_UNAUTHORIZED": "0",
+        }
+    )
 
     claude_args = ["-p", initial_prompt, "--dangerously-skip-permissions"]
     if model:
@@ -411,19 +415,26 @@ def run_claude_autonomous(
     if leann_info.get("mode") != "mcp":
         filtered_mcp_config = build_strict_mcp_config_without_server(server_name)
         if filtered_mcp_config is not None:
-            claude_args.extend([
-                "--strict-mcp-config",
-                "--mcp-config",
-                filtered_mcp_config,
-            ])
-            print(f"   -> 🚫 Non-LEANN mode; removed MCP server '{server_name}' from strict MCP config")
+            claude_args.extend(
+                [
+                    "--strict-mcp-config",
+                    "--mcp-config",
+                    filtered_mcp_config,
+                ]
+            )
+            print(
+                f"   -> 🚫 Non-LEANN mode; removed MCP server '{server_name}' from strict MCP config"
+            )
 
-    child = pexpect.spawn("claude", claude_args,
-                          cwd=target_dir, env=env, encoding="utf-8", timeout=1200)
+    child = pexpect.spawn(
+        "claude", claude_args, cwd=target_dir, env=env, encoding="utf-8", timeout=1200
+    )
 
     try:
         while True:
-            index = child.expect([r'\[y/n\]', r'Allow execution', pexpect.EOF, pexpect.TIMEOUT], timeout=5)
+            index = child.expect(
+                [r"\[y/n\]", r"Allow execution", pexpect.EOF, pexpect.TIMEOUT], timeout=5
+            )
             if index in [0, 1]:
                 child.sendline("y")
             elif index == 2:
@@ -439,10 +450,11 @@ def run_claude_autonomous(
 # Trajectory extraction: parse mitmproxy trace → ContextBench traj_data
 # ---------------------------------------------------------------------------
 
-def _parse_sse_tool_uses(text: str) -> List[Dict]:
+
+def _parse_sse_tool_uses(text: str) -> list[dict]:
     """Reconstruct tool_use calls from a streamed SSE response body."""
-    tool_blocks: Dict[int, Dict] = {}  # index -> {name, partial_json}
-    completed: List[Dict] = []
+    tool_blocks: dict[int, dict] = {}  # index -> {name, partial_json}
+    completed: list[dict] = []
 
     for line in text.split("\n"):
         if not line.startswith("data: "):
@@ -480,7 +492,7 @@ def _parse_sse_tool_uses(text: str) -> List[Dict]:
     return completed
 
 
-def _parse_json_tool_uses(text: str) -> List[Dict]:
+def _parse_json_tool_uses(text: str) -> list[dict]:
     """Extract tool_use calls from a non-streamed JSON response body."""
     try:
         resp = json.loads(text)
@@ -503,9 +515,7 @@ def _make_relative(file_path: str, target_dir: Path) -> str:
 
 def _is_leann_search_tool(name: str) -> bool:
     return bool(name) and (
-        name == "leann_search"
-        or name.endswith("__leann_search")
-        or "leann_search" in name
+        name == "leann_search" or name.endswith("__leann_search") or "leann_search" in name
     )
 
 
@@ -513,7 +523,7 @@ def _extract_trace_artifacts(
     trace_path: Path,
     target_dir: Path,
     since_timestamp: Optional[float] = None,
-) -> Dict:
+) -> dict:
     """
     Parse the mitmproxy JSONL trace once and derive both ContextBench trajectory data
     and LEANN usage statistics.
@@ -522,7 +532,7 @@ def _extract_trace_artifacts(
     Read calls with line offsets are mapped to line spans; other file-touching tool calls
     (Glob, Grep, Bash cat/head) contribute to pred_files only.
     """
-    pred_steps: List[Dict] = []
+    pred_steps: list[dict] = []
     leann_search_calls = 0
 
     if not trace_path.exists():
@@ -565,8 +575,8 @@ def _extract_trace_artifacts(
             if not tool_uses:
                 continue
 
-            step_files: List[str] = []
-            step_spans: Dict[str, List[Dict]] = {}
+            step_files: list[str] = []
+            step_spans: dict[str, list[dict]] = {}
 
             for tool in tool_uses:
                 name = tool.get("name", "")
@@ -600,23 +610,29 @@ def _extract_trace_artifacts(
                 elif name == "Bash":
                     # Heuristic: detect `cat`, `head`, `tail` calls on files.
                     cmd = inp.get("command", "") or ""
-                    for m in re.finditer(r'(?:cat|head|tail|sed|awk)\s+(?:-[^\s]+\s+)*([^\s|><;]+)', cmd):
+                    for m in re.finditer(
+                        r"(?:cat|head|tail|sed|awk)\s+(?:-[^\s]+\s+)*([^\s|><;]+)", cmd
+                    ):
                         candidate = m.group(1)
-                        if "/" in candidate or candidate.endswith((".py", ".go", ".ts", ".js", ".java", ".c", ".cpp", ".rs")):
+                        if "/" in candidate or candidate.endswith(
+                            (".py", ".go", ".ts", ".js", ".java", ".c", ".cpp", ".rs")
+                        ):
                             rel = _make_relative(candidate, target_dir)
                             if rel not in step_files:
                                 step_files.append(rel)
 
             if step_files:
-                pred_steps.append({
-                    "files": step_files,
-                    "spans": step_spans,
-                    "symbols": {},
-                })
+                pred_steps.append(
+                    {
+                        "files": step_files,
+                        "spans": step_spans,
+                        "symbols": {},
+                    }
+                )
 
     # Aggregate across all steps.
-    all_files: List[str] = []
-    all_spans: Dict[str, List[Dict]] = {}
+    all_files: list[str] = []
+    all_spans: dict[str, list[dict]] = {}
     for step in pred_steps:
         for f in step["files"]:
             if f not in all_files:
@@ -640,7 +656,7 @@ def extract_trajectory_from_traces(
     trace_path: Path,
     target_dir: Path,
     since_timestamp: Optional[float] = None,
-) -> Dict:
+) -> dict:
     return _extract_trace_artifacts(
         trace_path,
         target_dir,
@@ -699,7 +715,7 @@ def detect_messages_api_error(
     return None
 
 
-def _empty_traj_data() -> Dict:
+def _empty_traj_data() -> dict:
     return {"pred_steps": [], "pred_files": [], "pred_spans": {}, "pred_symbols": {}}
 
 
@@ -707,7 +723,8 @@ def _empty_traj_data() -> Dict:
 # Usage tracking (mirrored from swebench runner)
 # ---------------------------------------------------------------------------
 
-def _blank_usage() -> Dict:
+
+def _blank_usage() -> dict:
     return {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -718,7 +735,7 @@ def _blank_usage() -> Dict:
     }
 
 
-def _normalize_usage(raw: Optional[Dict]) -> Dict:
+def _normalize_usage(raw: Optional[dict]) -> dict:
     base = _blank_usage()
     if not isinstance(raw, dict):
         return base
@@ -731,7 +748,7 @@ def _normalize_usage(raw: Optional[Dict]) -> Dict:
     return base
 
 
-def _usage_delta(before: Dict, after: Dict) -> Dict:
+def _usage_delta(before: dict, after: dict) -> dict:
     return {
         "input_tokens": after["input_tokens"] - before["input_tokens"],
         "output_tokens": after["output_tokens"] - before["output_tokens"],
@@ -742,7 +759,7 @@ def _usage_delta(before: Dict, after: Dict) -> Dict:
     }
 
 
-def _has_positive_delta(usage: Dict) -> bool:
+def _has_positive_delta(usage: dict) -> bool:
     return (
         usage["total_tokens"] > 0
         or usage["input_tokens"] > 0
@@ -753,7 +770,7 @@ def _has_positive_delta(usage: Dict) -> bool:
     )
 
 
-def _format_usage(usage: Dict) -> str:
+def _format_usage(usage: dict) -> str:
     return (
         f"input: {usage['input_tokens']:,}, output: {usage['output_tokens']:,}, "
         f"cache_read: {usage['cache_read_tokens']:,}, cache_create: {usage['cache_creation_tokens']:,} "
@@ -774,7 +791,7 @@ def append_usage_log(line: str) -> None:
         print(f"⚠️ Failed to write usage log {log_path}: {e}")
 
 
-def append_task_metrics(entry: Dict) -> None:
+def append_task_metrics(entry: dict) -> None:
     if not TASK_METRICS_FILE:
         return
     metrics_path = Path(TASK_METRICS_FILE).expanduser()
@@ -787,11 +804,13 @@ def append_task_metrics(entry: Dict) -> None:
         print(f"⚠️ Failed to write task metrics {metrics_path}: {e}")
 
 
-def get_ccusage_sessions() -> Optional[Dict[str, Dict]]:
+def get_ccusage_sessions() -> Optional[dict[str, dict]]:
     try:
         result = subprocess.run(
             ["npx", "ccusage", "session", "--json", "--offline"],
-            capture_output=True, text=True, timeout=30
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()
@@ -800,7 +819,7 @@ def get_ccusage_sessions() -> Optional[Dict[str, Dict]]:
         sessions = data.get("sessions", [])
         if not isinstance(sessions, list):
             return {}
-        by_session: Dict[str, Dict] = {}
+        by_session: dict[str, dict] = {}
         for row in sessions:
             if not isinstance(row, dict):
                 continue
@@ -815,14 +834,14 @@ def get_ccusage_sessions() -> Optional[Dict[str, Dict]]:
 
 
 def compute_usage_diff(
-    before_sessions: Optional[Dict[str, Dict]],
-    after_sessions: Optional[Dict[str, Dict]],
+    before_sessions: Optional[dict[str, dict]],
+    after_sessions: Optional[dict[str, dict]],
     instance_id: str,
-) -> Optional[Dict]:
+) -> Optional[dict]:
     if before_sessions is None or after_sessions is None:
         return None
 
-    changed_sessions: Dict[str, Dict] = {}
+    changed_sessions: dict[str, dict] = {}
     all_session_ids = set(before_sessions.keys()) | set(after_sessions.keys())
     for session_id in all_session_ids:
         before = before_sessions.get(session_id, _blank_usage())
@@ -836,13 +855,10 @@ def compute_usage_diff(
 
     instance_lower = instance_id.lower()
     subagent_ids = [
-        sid for sid in changed_sessions
-        if sid.lower() == "subagents" or "subagent" in sid.lower()
+        sid for sid in changed_sessions if sid.lower() == "subagents" or "subagent" in sid.lower()
     ]
     non_subagent_items = [
-        (sid, usage)
-        for sid, usage in changed_sessions.items()
-        if sid not in subagent_ids
+        (sid, usage) for sid, usage in changed_sessions.items() if sid not in subagent_ids
     ]
     matched_non_subagent = [
         (sid, usage)
@@ -854,8 +870,7 @@ def compute_usage_diff(
         return None
 
     primary_session_id, session_usage = max(
-        primary_candidates,
-        key=lambda x: (x[1]["total_tokens"], x[1]["cost_usd"])
+        primary_candidates, key=lambda x: (x[1]["total_tokens"], x[1]["cost_usd"])
     )
     return {
         "session_id": primary_session_id,
@@ -873,6 +888,7 @@ def compute_usage_diff(
 # Main task runner
 # ---------------------------------------------------------------------------
 
+
 def run_single_task(
     instance_id: str,
     repo_url: str,
@@ -880,7 +896,7 @@ def run_single_task(
     mitm_script_path: str,
     trace_dir: Path,
     model: str = "",
-    task: Optional[Dict] = None,
+    task: Optional[dict] = None,
 ) -> tuple:
     """
     Run one ContextBench instance end-to-end.
@@ -897,8 +913,8 @@ def run_single_task(
     trace_dir = Path(trace_dir)
     mitm_proc = None
     start_time = time.time()
-    usage_before: Optional[Dict[str, Dict]] = None
-    usage: Optional[Dict] = None
+    usage_before: Optional[dict[str, dict]] = None
+    usage: Optional[dict] = None
     status = "failed"
     error_message: Optional[str] = None
     claude_start_ts: Optional[float] = None
@@ -957,7 +973,7 @@ def run_single_task(
             if claude_start_ts is not None and claude_end_ts is not None
             else None
         )
-        print(f"⏱️  Task completed in {elapsed:.1f}s ({elapsed/60:.1f}min)")
+        print(f"⏱️  Task completed in {elapsed:.1f}s ({elapsed / 60:.1f}min)")
         status = "succeeded"
         return patch, elapsed, agent_elapsed, traj_data, usage
     except Exception as e:
@@ -974,7 +990,7 @@ def run_single_task(
             usage_after = get_ccusage_sessions()
             usage = compute_usage_diff(usage_before, usage_after, instance_id=instance_id)
 
-        metrics_entry: Dict = {
+        metrics_entry: dict = {
             "instance_id": instance_id,
             "repo_url": repo_url,
             "model": model or "cli-default",
